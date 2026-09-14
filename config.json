@@ -1,0 +1,38 @@
+{
+    "mqtt": {
+        "host": "45.117.170.179",
+        "port": 1885,
+        "username": "",
+        "password": "",
+        "subscribe_topics": [
+            "node/+/data",
+            "node/+/info"
+        ],
+        "filter_by_gateway_uuid": true,
+        "count_retained": false
+    },
+    "serial": {
+        "baudrate": 115200
+    },
+    "gateway_http": {
+        "enabled": true,
+        "timeout_s": 3
+    },
+    "node": {
+        "new_node_suffix": "FC8B3004"
+    },
+    "test": {
+        "default_target_messages": 1000,
+        "default_duration_seconds": 600,
+        "settle_seconds": 0.2
+    },
+    "pass": {
+        "max_missing": 0,
+        "min_delivery_rate_percent": 100.0
+    },
+    "ui": {
+        "raw_log_lines": 5000,
+        "table_max_rows": 50000,
+        "filter_garbage": true
+    }
+}

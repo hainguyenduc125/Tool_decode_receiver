@@ -1,0 +1,4 @@
+PyQt5>=5.15.10
+pyserial>=3.5
+paho-mqtt>=2.1.0
+requests>=2.31.0
