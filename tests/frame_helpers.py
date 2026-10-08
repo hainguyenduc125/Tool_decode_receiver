@@ -23,6 +23,46 @@ def build_type3_data_frame(uid: bytes, seq: int, mcu_temp_x100: int, vdd_x100: i
     return bytes(body)
 
 
+def build_firmware_type3_data_frame(
+    uid: bytes,
+    seq: int,
+    node_type: int,
+    mcu_temp_x100: int,
+    vdd_x100: int,
+    ch_count: int,
+    floats: list[float],
+) -> bytes:
+    """Current firmware Type3 data frame, including TYPE at offset 10."""
+    body = bytearray(uid)
+    body += struct.pack("<H", seq)
+    body += bytes([node_type])
+    body += struct.pack("<h", mcu_temp_x100)
+    body += struct.pack("<H", vdd_x100)
+    body += bytes([ch_count])
+    for value in floats:
+        body += struct.pack("<f", value)
+    body += struct.pack("<H", crc16_modbus(bytes(body)))
+    return bytes(body)
+
+
+def build_firmware_type3_info_frame(uid: bytes) -> bytes:
+    """Current 32-byte Type3 info frame described by the gateway firmware."""
+    body = bytearray(uid)
+    body += struct.pack("<H", 0)       # SEQ
+    body += bytes([3, 7])              # TYPE, FW_VER
+    body += struct.pack("<I", 920600000)
+    body += bytes([125, 11, 1, 20])    # BW, TX power, RX mode/window
+    body += struct.pack("<H", 120)     # INFO_INT
+    body += bytes([1])                 # JOIN
+    body += struct.pack("<H", 300)     # WRN_D
+    body += struct.pack("<H", 60)      # ACQ_I
+    body += struct.pack("<H", 1800)    # SND_I
+    body += bytes([20])                # DIST
+    body += struct.pack("<H", crc16_modbus(bytes(body)))
+    assert len(body) == 32
+    return bytes(body)
+
+
 def build_type3_info_frame(uid: bytes) -> bytes:
     """28-byte Info frame Type3 (SEQ=0) — firmware hiện tại KHÔNG nhận diện."""
     body = bytearray()

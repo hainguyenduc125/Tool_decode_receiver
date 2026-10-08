@@ -61,6 +61,7 @@ from mqtt.mqtt_parser import MqttParser
 from lora_io.lora_parser import SerialLogParser
 from lora_io.serial_manager import SerialWorker, list_serial_ports
 from ui.log_viewer import LogViewer
+from ui.lora_decoder_widget import LoraDecoderWidget
 from ui.message_table import (
     MessageLogTable,
     NodeCompareTable,
@@ -629,6 +630,9 @@ class MainWindow(QMainWindow):
         self.msg_table = MessageLogTable(max_rows=max_rows)
         ml.addWidget(self.msg_table, 1)
         self.tabs.addTab(tab_ml, "Message Log")
+
+        self.lora_decoder = LoraDecoderWidget()
+        self.tabs.addTab(self.lora_decoder, "Giải mã LoRa")
 
         self.uart_view = LogViewer(max_lines=raw_lines)
         tab_u = QWidget()

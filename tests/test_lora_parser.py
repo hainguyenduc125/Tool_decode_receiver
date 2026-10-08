@@ -15,6 +15,7 @@ from models.message import (
 from lora_io.lora_parser import SerialLogParser
 
 from .frame_helpers import (
+    build_firmware_type3_data_frame,
     build_old_frame,
     build_type3_data_frame,
     build_type3_info_frame,
@@ -47,6 +48,24 @@ class TestSerialParser(unittest.TestCase):
         self.assertEqual(evt.rssi, -45)
         self.assertEqual(evt.snr, 8)
         self.assertEqual(evt.receiver_id, "64B5B30615E18000")
+
+    def test_current_firmware_type3_data_block(self):
+        frame = build_firmware_type3_data_frame(
+            UID, seq=6, node_type=3, mcu_temp_x100=3122,
+            vdd_x100=330, ch_count=1, floats=[20.0],
+        )
+        parser = SerialLogParser()
+        parser.feed(
+            "[LORA]    RECEIVER ID: 64B5B30615E18000 | TIME: 2026-09-08T09:30:01+07:00",
+            "10:00:00.001")
+        events = parser.feed(
+            "[LORA]    RSSI: -45 | SNR: 8 | LENGTH: %d | DATA: %s"
+            % (len(frame), type3_display_data(frame)),
+            "10:00:00.002")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].kind, RX_KIND_DATA)
+        self.assertEqual(events[0].node_uuid, "0102030405060708")
+        self.assertEqual(events[0].seq, 6)
 
     def test_crc_error_block(self):
         frame = bytearray(build_type3_data_frame(UID, seq=5, mcu_temp_x100=3122,
