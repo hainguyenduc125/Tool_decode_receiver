@@ -13,15 +13,16 @@ python main.py
 ```
 
 Hoặc chạy `.\run.ps1`. Chọn cổng COM của mạch thu, baudrate (mặc định 115200)
-rồi bấm **Kết nối**. Cửa sổ chính chia thành ba cột: **Bản tin nhận được**,
-**Giải mã thủ công** và **Kết quả trực tiếp**. Tab **Bản tin** liệt kê từng
-record UART; tab **Console UART thô** giữ nguyên luồng UART.
+Rồi bấm **Kết nối**. Cửa sổ chính chia thành ba cột: **Bản tin nhận được**,
+kết quả giải mã của bản tin được chọn và **Kết quả trực tiếp**. Tab **Bản tin**
+liệt kê từng record UART; tab **Console UART thô** giữ nguyên luồng UART.
 
-Chọn một hàng trong bảng (hoặc dùng phím ↑/↓) để nạp và giải mã ngay record đó.
-Trong tab console thô, nhấp vào một dòng nhận dạng được để giải mã dòng ấy.
-Kết quả giải mã do thao tác chọn hiển thị ở cột giữa; bản tin live mới nhất
-hiển thị riêng ở cột phải. Nếu đang chọn một hàng hoặc đã cuộn lên trong bảng,
-bản tin mới không làm thay đổi lựa chọn và vị trí cuộn.
+Chọn một hàng trong bảng (hoặc dùng phím ↑/↓) để xem kết quả giải mã tương ứng
+ở cột giữa. Trong tab console thô, nhấp vào một dòng nhận dạng được để xem kết
+quả giải mã dòng ấy. Không còn ô nhập giải mã thủ công. **Chụp kết quả** chỉ lưu
+ảnh vùng kết quả của bản tin được chọn, không chụp toàn bộ cửa sổ. Bản tin live
+mới nhất hiển thị riêng ở cột phải. Nếu đang chọn một hàng hoặc đã cuộn lên
+trong bảng, bản tin mới không làm thay đổi lựa chọn và vị trí cuộn.
 
 Ô **Lọc UID node** so khớp UID chính xác, không phân biệt hoa thường; với record
 `L:`, UID được lấy từ trường **Receiver UID**. Nhóm bộ lọc **SEQ** gồm **Chẵn**,
@@ -46,10 +47,10 @@ số SEQ duy nhất đã nhận, `Mất = Tổng − Đã nhận`, và `Tỉ l�
 100%`. Gói đến trễ có thể lấp vào SEQ bị mất; gói CRC sai chỉ được đếm riêng.
 Nhóm **Không SEQ** chỉ hiển thị số đã nhận, không tính tổng/mất/tỉ lệ.
 
-## Giải mã thủ công
+## Giải mã bản tin
 
-Ô nhập trong cột **Giải mã thủ công** nhận một frame HEX, một dòng UART, hoặc
-nhiều record, mỗi dòng một bản tin:
+Chọn bản tin từ bảng hoặc nhấp vào dòng tương ứng trong console UART để xem kết
+quả giải mã. Parser hỗ trợ:
 
 - HEX thuần hoặc `+EVT:RXP2P:<rssi>:<snr>:<hex>`.
 - Dòng receiver `[RX] <length> | <rssi> | <snr> | <hex>`; RSSI/SNR dạng thập

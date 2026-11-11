@@ -146,31 +146,19 @@ class LoraConsoleWindow(QMainWindow):
         self._refresh_record_filters()
         splitter.addWidget(received_panel)
 
-        manual_panel = QWidget()
-        manual_layout = QVBoxLayout(manual_panel)
-        manual_layout.setContentsMargins(0, 0, 0, 0)
-        manual_layout.addWidget(QLabel("Giải mã thủ công"))
-        self.decode_input = QPlainTextEdit()
-        self.decode_input.setFont(QFont("Consolas", 10))
-        self.decode_input.setPlaceholderText(
-            "Dán HEX, +EVT:RXP2P:, DATA:, D: hoặc L:; mỗi dòng một record."
+        decoded_panel = QWidget()
+        decoded_layout = QVBoxLayout(decoded_panel)
+        decoded_layout.setContentsMargins(0, 0, 0, 0)
+        decoded_layout.addWidget(QLabel("Kết quả giải mã (bản tin đã chọn)"))
+        self.selected_result = QPlainTextEdit()
+        self.selected_result.setReadOnly(True)
+        self.selected_result.setFont(QFont("Consolas", 10))
+        self.selected_result.setPlaceholderText(
+            "Chọn một bản tin để xem kết quả giải mã."
         )
-        manual_layout.addWidget(self.decode_input, 1)
-        actions = QHBoxLayout()
-        self.decode_button = QPushButton("Giải mã")
-        self.decode_button.clicked.connect(self._decode_pasted)
-        actions.addWidget(self.decode_button)
-        self.clear_input_button = QPushButton("Xóa")
-        self.clear_input_button.clicked.connect(self.decode_input.clear)
-        actions.addWidget(self.clear_input_button)
-        actions.addStretch(1)
-        manual_layout.addLayout(actions)
-        manual_layout.addWidget(QLabel("Kết quả giải mã"))
-        self.manual_result = QPlainTextEdit()
-        self.manual_result.setReadOnly(True)
-        self.manual_result.setFont(QFont("Consolas", 10))
-        manual_layout.addWidget(self.manual_result, 2)
-        splitter.addWidget(manual_panel)
+        decoded_layout.addWidget(self.selected_result)
+        self.decoded_result_panel = decoded_panel
+        splitter.addWidget(decoded_panel)
 
         result_panel = QWidget()
         result_layout = QVBoxLayout(result_panel)
@@ -261,15 +249,14 @@ class LoraConsoleWindow(QMainWindow):
         return line.startswith(("[RX]", "+EVT:RXP2P:", "D:", "L:")) or "DATA:" in line
 
     def _decode_selected_record(self, line: str, parity: str, timestamp: str) -> None:
-        self.decode_input.setPlainText(line)
         try:
             decoded = decode_console_line(line)
         except ValueError as exc:
-            self.manual_result.setPlainText(
+            self.selected_result.setPlainText(
                 f"Bản tin {parity} – {timestamp}\n\nLỗi giải mã:\n{exc}"
             )
             return
-        self.manual_result.setPlainText(
+        self.selected_result.setPlainText(
             self._format_result(decoded, f"Bản tin {parity} – {timestamp}")
         )
 
@@ -277,15 +264,14 @@ class LoraConsoleWindow(QMainWindow):
         line = re.sub(r"^\[\d{2}:\d{2}:\d{2}\]\s*", "", displayed_line, count=1)
         if not self._is_uart_record(line):
             return
-        self.decode_input.setPlainText(line)
         try:
             decoded = decode_console_line(line)
         except ValueError as exc:
-            self.manual_result.setPlainText(f"Lỗi giải mã bản tin UART:\n{exc}")
+            self.selected_result.setPlainText(f"Lỗi giải mã bản tin UART:\n{exc}")
             return
         parity = seq_parity(decoded)
         timestamp = time.strftime("%H:%M:%S")
-        self.manual_result.setPlainText(
+        self.selected_result.setPlainText(
             self._format_result(decoded, f"Bản tin {parity} – {timestamp}")
         )
 
@@ -369,40 +355,6 @@ class LoraConsoleWindow(QMainWindow):
         if uid:
             self.stats_store.reset(uid)
             self._refresh_node_stats()
-
-    def _decode_pasted(self) -> None:
-        lines = [line.strip() for line in self.decode_input.toPlainText().splitlines() if line.strip()]
-        if not lines:
-            self.manual_result.setPlainText("Chưa có dữ liệu để giải mã.")
-            return
-        try:
-            uid_filter = self._uid_filter_value()
-        except ValueError as exc:
-            self.manual_result.setPlainText(f"Bộ lọc UID không hợp lệ: {exc}")
-            return
-
-        results = []
-        for index, line in enumerate(lines, start=1):
-            try:
-                decoded = decode_console_line(line)
-                parity = seq_parity(decoded)
-                if (
-                    not record_matches_filters(
-                        record_uid_for_line(line, decoded),
-                        parity,
-                        uid_filter,
-                        self._selected_parities(),
-                    )
-                ):
-                    continue
-                title = f"Frame {index}" if len(lines) > 1 else "Frame"
-                results.append(self._format_result(decoded, title))
-            except ValueError as exc:
-                results.append(f"Frame {index if len(lines) > 1 else ''} — lỗi đầu vào: {exc}")
-        if not results and (uid_filter or self._selected_parities() != set(SEQ_PARITIES)):
-            self.manual_result.setPlainText("Không có bản tin nào khớp bộ lọc hiện tại.")
-            return
-        self.manual_result.setPlainText("\n\n" + ("\n" + "=" * 55 + "\n\n").join(results))
 
     def _show_decoded(self, line: str) -> None:
         try:
@@ -495,6 +447,14 @@ class LoraConsoleWindow(QMainWindow):
         return "\n".join(lines)
 
     def _capture_result(self) -> None:
+        if not self.selected_result.toPlainText().strip():
+            QMessageBox.information(
+                self,
+                "Chưa có kết quả giải mã",
+                "Chọn một bản tin trước khi chụp kết quả.",
+            )
+            return
+
         screenshot_dir = Path(__file__).resolve().parent.parent / "screenshots"
         try:
             screenshot_dir.mkdir(parents=True, exist_ok=True)
@@ -518,11 +478,11 @@ class LoraConsoleWindow(QMainWindow):
         if Path(path).suffix.lower() != ".png":
             path += ".png"
 
-        if not self.grab().save(path, "PNG"):
+        if not self.decoded_result_panel.grab().save(path, "PNG"):
             QMessageBox.warning(
                 self,
                 "Không thể lưu ảnh",
-                f"Không thể lưu ảnh chụp tại:\n{path}",
+                f"Không thể lưu ảnh kết quả giải mã tại:\n{path}",
             )
 
     def _clear_console(self) -> None:
@@ -533,10 +493,9 @@ class LoraConsoleWindow(QMainWindow):
             max_frames=int(self.cfg["ui"].get("table_max_rows", 50000))
         )
         self.result.clear()
-        self.manual_result.clear()
+        self.selected_result.clear()
         self._last_live_decoded = None
         self._last_live_uid = ""
-        self.decode_input.clear()
         self._refresh_node_stats()
 
     def closeEvent(self, event) -> None:
