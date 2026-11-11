@@ -5,10 +5,9 @@ calc_crc16_modbus). Tool phải phân loại frame GIỐNG gateway để quyết
 nào là data frame (seq > 0, CRC OK) → khớp 1:1 với message MQTT hệ mới.
 
 Node mới (Type3):
-  Data : [UID 8][SEQ 2 LE][MCU_TEMP 2][VDD 2][CH_COUNT 1][float N*4][CRC16 Modbus 2 LE]
-         tổng = 17 + N*4 byte
-  Info : 28 byte, SEQ=0 (firmware hiện tại KHÔNG nhận diện được độ dài 28 —
-         quirk giữ nguyên để tool phân loại giống gateway => "unparsed").
+  Data : [UID 8][SEQ 2 LE][TYPE][MCU_TEMP 2][VDD 2][CH_COUNT 1][float N*4][CRC16 Modbus 2 LE]
+         tổng = 18 + N*4 byte
+  Info : 32 byte. Gateway phân loại theo độ dài, không theo SEQ.
 
 Node cũ (UUID 12B):
   frame 22 (info, SEQ=0) / 26 (camera) / 42 (4 cảm biến), CRC XOR.
@@ -21,6 +20,8 @@ import re
 import struct
 from typing import Optional
 
+_GATEWAY_MAX_SENSOR_COUNT = 60
+
 
 @dataclass
 class FrameDecode:
@@ -30,6 +31,7 @@ class FrameDecode:
     seq: Optional[int]              # None nếu không xác định
     crc_ok: bool
     length: int
+    gateway_result: str = "OK"
 
 
 @dataclass
@@ -45,6 +47,7 @@ class PacketDetails:
     length: int
     fields: list[tuple[str, str]]
     notes: list[str]
+    gateway_result: str = "OK"
 
 
 @dataclass
@@ -88,51 +91,88 @@ def crc_xor_old_ok(data: bytes) -> bool:
     return calc == le
 
 
+def _gateway_uid_valid(uid: str) -> bool:
+    if len(uid) == 16:
+        return uid.endswith("15E18000")
+    if len(uid) != 24:
+        return False
+    return uid.endswith("15E18000FC8B3004") or (
+        uid.startswith("343947")
+        and uid[8:16] == "33303031"
+        and uid[18:20] == "00"
+        and uid[22:24] == "00"
+    )
+
+
 def decode_frame(raw: bytes) -> FrameDecode:
-    """Phân loại frame giống parser gateway, gồm cả layout Type3 hiện tại."""
+    """Phân loại frame bằng đúng thứ tự kiểm tra trong parse_node_packet()."""
     n = len(raw)
 
-    # Firmware Type3 hiện tại thêm TYPE ở offset 10: data dài 18 + 4N,
-    # info dài 32 byte. Thử Modbus trước vì các độ dài này trùng frame cũ.
-    is_current_type3_len = n == 32 or (n >= 22 and (n - 18) % 4 == 0)
-    if is_current_type3_len:
-        crc = crc16_modbus(raw[: n - 2])
-        crc_recv = raw[n - 2] | (raw[n - 1] << 8)
-        if crc == crc_recv:
-            seq = raw[8] | (raw[9] << 8)
+    is_8b_data_len = n >= 18 and (n - 18) % 4 == 0
+    is_8b_info_len = n == 32
+    is_12b_len = n in (22, 26, 42)
+    if not (is_8b_data_len or is_8b_info_len or is_12b_len):
+        return FrameDecode(None, "unparsed", "", None, False, n, "LENGTH_ERROR")
+
+    mb_calc = crc16_modbus(raw[:-2])
+    mb_recv = raw[-2] | (raw[-1] << 8)
+    mb_ok = mb_calc == mb_recv
+    xor_ok = is_12b_len and crc_xor_old_ok(raw)
+
+    sem_ok = False
+    if is_8b_data_len:
+        channel_count = raw[15]
+        sample_count = (n - 18) // 4
+        sem_ok = (
+            sample_count == 0
+            if channel_count == 0
+            else (
+                channel_count <= _GATEWAY_MAX_SENSOR_COUNT
+                and sample_count <= _GATEWAY_MAX_SENSOR_COUNT
+                and channel_count <= sample_count
+                and sample_count % channel_count == 0
+            )
+        )
+
+    if mb_ok and xor_ok:
+        decode_as_8b = sem_ok
+    elif mb_ok:
+        decode_as_8b = True
+    elif xor_ok:
+        decode_as_8b = False
+    else:
+        return FrameDecode(None, "unparsed", "", None, False, n, "CRC_ERROR")
+
+    if decode_as_8b:
+        if not (is_8b_data_len or is_8b_info_len):
+            return FrameDecode(None, "unparsed", "", None, False, n, "LENGTH_ERROR")
+        seq = raw[8] | (raw[9] << 8)
+        if not is_8b_info_len and not sem_ok:
             return FrameDecode(
-                family="new", kind="info" if seq == 0 else "data",
-                node_uuid=raw[:8].hex().upper(), seq=seq,
-                crc_ok=True, length=n)
+                "new", "unparsed", raw[:8].hex().upper(), seq, True, n,
+                "INVALID_FORMAT",
+            )
+        uid = raw[:8].hex().upper()
+        if not _gateway_uid_valid(uid):
+            return FrameDecode("new", "unparsed", uid, seq, True, n, "INVALID_UUID")
+        return FrameDecode(
+            "new", "info" if is_8b_info_len else "data",
+            uid, seq, True, n,
+        )
 
-    if n in (22, 26, 42):
-        # ---- Node cũ (UUID 12B), CRC XOR ----
-        # Seq lưu little-endian: firmware đọc `packet.data[13]<<8 | packet.data[12]`
-        # (src/data_process.cpp:256,272), tool phải đọc Y HỆT để khớp seq MQTT.
-        uuid = raw[:12].hex().upper()
-        if n == 22:
-            seq = 0
-            kind = "info"
-        else:
-            seq = (raw[13] << 8) | raw[12]         # little-endian (== firmware)
-            kind = "data" if seq > 0 else "info"
-        return FrameDecode(family="old", kind=kind, node_uuid=uuid,
-                           seq=seq, crc_ok=crc_xor_old_ok(raw), length=n)
-
-    # Layout Type3 cũ vẫn được dùng bởi các phiên bản tool/firmware trước đây.
-    if n >= 17 and (n - 17) % 4 == 0:
-        # ---- Node mới (UID 8B), CRC-16 Modbus LE ----
-        uuid = raw[:8].hex().upper()
-        seq = raw[8] | (raw[9] << 8)               # little-endian
-        crc = crc16_modbus(raw[: n - 2])
-        crc_recv = raw[n - 2] | (raw[n - 1] << 8)
-        return FrameDecode(family="new", kind="data" if seq > 0 else "info",
-                           node_uuid=uuid, seq=seq,
-                           crc_ok=(crc == crc_recv), length=n)
-
-    # Quirk: Info frame Type3 (28B) và mọi độ dài lạ → firmware trả LENGTH_ERROR.
-    return FrameDecode(family=None, kind="unparsed", node_uuid="", seq=None,
-                       crc_ok=False, length=n)
+    seq = 0 if n == 22 else (raw[13] << 8) | raw[12]
+    uuid = raw[:12].hex().upper()
+    if not _gateway_uid_valid(uuid):
+        return FrameDecode("old", "unparsed", uuid, seq, True, n, "INVALID_UUID")
+    if n == 26:
+        exponents_valid = raw[18] <= 7
+    elif n == 42:
+        exponents_valid = all(raw[offset] <= 7 for offset in (16, 22, 28, 34))
+    else:
+        exponents_valid = True
+    if not exponents_valid:
+        return FrameDecode("old", "unparsed", uuid, seq, True, n, "INVALID_FORMAT")
+    return FrameDecode("old", "info" if n == 22 else "data", uuid, seq, True, n)
 
 
 def _crc_fields(raw: bytes, modbus: bool) -> tuple[int, int, bool]:
@@ -219,7 +259,7 @@ def _decode_current_type3(raw: bytes) -> PacketDetails:
     ]
     notes: list[str] = []
 
-    if seq == 0:
+    if n == 32:
         kind = "info"
         if n == 32:
             fields.extend([
@@ -337,7 +377,7 @@ def _decode_old_packet(raw: bytes) -> PacketDetails:
     else:
         seq = (raw[13] << 8) | raw[12]
         fields = [("UUID (12 byte)", uuid), ("SEQ (LE)", str(seq))]
-        kind = "data" if seq > 0 else "info"
+        kind = "data"
         notes = []
         if n == 26:
             exponent = raw[18]
@@ -382,53 +422,55 @@ def _decode_old_packet(raw: bytes) -> PacketDetails:
 
 
 def decode_packet_details(raw: bytes) -> PacketDetails:
-    """Giải mã chi tiết các layout firmware Type3 và node cũ."""
+    """Giải mã frame và báo kết quả phân loại như Gateway Type0."""
     n = len(raw)
-    is_current_type3_len = n == 32 or (n >= 22 and (n - 18) % 4 == 0)
-    is_old_len = n in (22, 26, 42)
+    fd = decode_frame(raw)
 
-    # Thứ tự giống gateway: Type3 Modbus trước, sau đó mới thử CRC XOR node cũ.
-    if is_current_type3_len:
-        current_crc = _crc_fields(raw, modbus=True)
-        if current_crc[2]:
-            return _decode_current_type3(raw)
-    if is_old_len:
-        old_crc = _crc_fields(raw, modbus=False)
-        if old_crc[2]:
-            return _decode_old_packet(raw)
-
-    # Lưu khả năng giải mã các frame Type3 của parser/tài liệu legacy.
-    if n == 28 and raw[8] == 0 and raw[9] == 0:
-        return _decode_type3_info_28(raw)
-    if n >= 17 and (n - 17) % 4 == 0:
-        return _decode_legacy_type3_data(raw)
-
-    if is_current_type3_len and not is_old_len:
-        return _decode_current_type3(raw)
-    if is_old_len:
-        details = _decode_old_packet(raw)
-        if is_current_type3_len:
-            details.layout = f"{details.layout}; độ dài cũng khớp Type3 nhưng CRC không hợp lệ"
-            details.family = None
-            details.node_uuid = ""
-            details.seq = None
-            details.fields = [("Frame length", str(n))]
-            details.notes.append("Không thể chọn layout vì CRC của cả Type3 và node cũ đều sai.")
+    if fd.gateway_result == "OK":
+        details = _decode_current_type3(raw) if fd.family == "new" else _decode_old_packet(raw)
+        details.kind = fd.kind
+        details.gateway_result = fd.gateway_result
         return details
 
-    fd = decode_frame(raw)
+    if fd.gateway_result in ("INVALID_FORMAT", "INVALID_UUID"):
+        if fd.family == "new":
+            details = _decode_current_type3(raw)
+        else:
+            details = _decode_old_packet(raw)
+        details.kind = "unparsed"
+        details.gateway_result = fd.gateway_result
+        if fd.gateway_result == "INVALID_UUID":
+            details.notes.append(
+                "UID không khớp format nhà máy; Gateway có thể bỏ qua kiểm tra này "
+                "nếu UID nằm trong whitelist (packet.force)."
+            )
+        else:
+            details.notes.append("Gateway Type0 từ chối frame với INVALID_FORMAT.")
+        return details
+
+    if fd.gateway_result == "LENGTH_ERROR" and n == 28 and raw[8:10] == b"\x00\x00":
+        details = _decode_type3_info_28(raw)
+        details.gateway_result = fd.gateway_result
+        return details
+    if fd.gateway_result == "LENGTH_ERROR" and n >= 17 and (n - 17) % 4 == 0:
+        details = _decode_legacy_type3_data(raw)
+        details.gateway_result = fd.gateway_result
+        details.notes.append("Gateway Type0 từ chối layout legacy với LENGTH_ERROR.")
+        return details
+
     return PacketDetails(
         family=fd.family,
-        layout="Không nhận diện được layout",
+        layout=f"Gateway Type0: {fd.gateway_result}",
         kind="unparsed",
         node_uuid=fd.node_uuid,
         seq=fd.seq,
-        crc_ok=False,
+        crc_ok=fd.crc_ok,
         crc_calculated=None,
         crc_received=None,
         length=n,
         fields=[("Frame length", str(n))],
-        notes=["Độ dài frame không khớp các layout được hỗ trợ."],
+        notes=[f"Gateway Type0 sẽ từ chối frame: {fd.gateway_result}."],
+        gateway_result=fd.gateway_result,
     )
 
 
@@ -479,12 +521,12 @@ def _decode_d_record(line: str) -> ConsoleDecode:
             f"D record tạo thành {len(frame)} byte, cần đúng {expected_len} byte."
         )
 
-    packet = _decode_old_packet(bytes(frame))
+    packet = decode_packet_details(bytes(frame))
     rssi_raw = int.from_bytes(parse_hex(parts[rssi_index], 4, "RSSI"), "big")
     snr_raw = int.from_bytes(parse_hex(parts[snr_index], 4, "SNR"), "big")
     rssi = rssi_raw - 0x10000 if rssi_raw & 0x8000 else rssi_raw
     snr = snr_raw - 0x10000 if snr_raw & 0x8000 else snr_raw
-    packet.layout = f"D record (node cũ {expected_len} byte, CRC XOR)"
+    packet.layout = f"D record ({packet.layout})"
     packet.fields.extend([("RSSI", f"{rssi} dBm"), ("SNR", str(snr))])
     if not packet.crc_ok:
         packet.notes.append("CRC XOR của frame dựng từ D record không hợp lệ.")

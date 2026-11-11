@@ -17,19 +17,21 @@ from lora_io.lora_parser import SerialLogParser
 from .frame_helpers import (
     build_firmware_type3_data_frame,
     build_old_frame,
-    build_type3_data_frame,
+    build_type3_camera_frame,
     build_type3_info_frame,
     type3_display_data,
 )
 
-UID = bytes.fromhex("0102030405060708")
-OLD_UUID = bytes.fromhex("AABBCCDDEEFF001122334455")
+UID = bytes.fromhex("4B3A5E0615E18000")
+OLD_UUID = bytes.fromhex("4B3A5E0615E18000FC8B3004")
 
 
 class TestSerialParser(unittest.TestCase):
     def test_type3_data_block(self):
-        frame = build_type3_data_frame(UID, seq=5, mcu_temp_x100=3122,
-                                       vdd_x100=330, ch_count=1, floats=[20.0])
+        frame = build_firmware_type3_data_frame(
+            UID, seq=5, node_type=3, mcu_temp_x100=3122,
+            vdd_x100=330, ch_count=1, floats=[20.0],
+        )
         parser = SerialLogParser()
         events = []
         events += parser.feed("", "10:00:00.000")
@@ -43,7 +45,7 @@ class TestSerialParser(unittest.TestCase):
         evt = events[0]
         self.assertIsInstance(evt, LoraRxEvent)
         self.assertEqual(evt.kind, RX_KIND_DATA)
-        self.assertEqual(evt.node_uuid, "0102030405060708")
+        self.assertEqual(evt.node_uuid, UID.hex().upper())
         self.assertEqual(evt.seq, 5)
         self.assertEqual(evt.rssi, -45)
         self.assertEqual(evt.snr, 8)
@@ -64,12 +66,14 @@ class TestSerialParser(unittest.TestCase):
             "10:00:00.002")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].kind, RX_KIND_DATA)
-        self.assertEqual(events[0].node_uuid, "0102030405060708")
+        self.assertEqual(events[0].node_uuid, UID.hex().upper())
         self.assertEqual(events[0].seq, 6)
 
     def test_crc_error_block(self):
-        frame = bytearray(build_type3_data_frame(UID, seq=5, mcu_temp_x100=3122,
-                                                 vdd_x100=330, ch_count=1, floats=[20.0]))
+        frame = bytearray(build_firmware_type3_data_frame(
+            UID, seq=5, node_type=3, mcu_temp_x100=3122,
+            vdd_x100=330, ch_count=1, floats=[20.0],
+        ))
         frame[-1] ^= 0x01  # hỏng CRC
         parser = SerialLogParser()
         parser.feed("[LORA]    RECEIVER ID: 64B5B30615E18000 | TIME: ",
@@ -99,8 +103,23 @@ class TestSerialParser(unittest.TestCase):
             "10:00:00.002")
         evt = events[0]
         self.assertEqual(evt.kind, RX_KIND_DATA)
-        self.assertEqual(evt.node_uuid, "AABBCCDDEEFF001122334455")
+        self.assertEqual(evt.node_uuid, OLD_UUID.hex().upper())
         self.assertEqual(evt.seq, 7)
+
+    def test_type3_camera_node_data_block(self):
+        frame = build_type3_camera_frame(
+            OLD_UUID, seq=7, x=3, y=4, exponent=2, value=12345,
+        )
+        parser = SerialLogParser()
+        parser.feed("[LORA]    RECEIVER ID: 64B5B30615E18000 | TIME: ", "10:00:00.001")
+        events = parser.feed(
+            "[LORA]    RSSI: -50 | SNR: 5 | LENGTH: %d | DATA: %s"
+            % (len(frame), type3_display_data(frame)),
+            "10:00:00.002",
+        )
+        self.assertEqual(events[0].kind, RX_KIND_DATA)
+        self.assertEqual(events[0].node_uuid, OLD_UUID.hex().upper())
+        self.assertEqual(events[0].seq, 7)
 
     def test_notices(self):
         parser = SerialLogParser()

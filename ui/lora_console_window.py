@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -65,8 +66,8 @@ class LoraConsoleWindow(QMainWindow):
         controls.addWidget(self.status_label)
         controls.addStretch(1)
 
-        self.save_button = QPushButton("Lưu console")
-        self.save_button.clicked.connect(self._save_console)
+        self.save_button = QPushButton("Chụp kết quả")
+        self.save_button.clicked.connect(self._capture_result)
         controls.addWidget(self.save_button)
         self.clear_console_button = QPushButton("Xóa console")
         self.clear_console_button.clicked.connect(self._clear_console)
@@ -236,9 +237,15 @@ class LoraConsoleWindow(QMainWindow):
     @staticmethod
     def _format_result(decoded: ConsoleDecode, title: str) -> str:
         packet = decoded.packet
+        gateway_text = (
+            "CHẤP NHẬN"
+            if packet.gateway_result == "OK"
+            else f"TỪ CHỐI: {packet.gateway_result}"
+        )
         crc_text = "HỢP LỆ" if packet.crc_ok else "KHÔNG HỢP LỆ / KHÔNG XÁC ĐỊNH"
         lines = [
             title,
+            f"Gateway Type0: {gateway_text}",
             f"CRC: {crc_text}",
             f"Layout: {packet.layout}",
             f"Loại: {packet.kind}",
@@ -265,13 +272,36 @@ class LoraConsoleWindow(QMainWindow):
             lines.extend(f"  - {note}" for note in packet.notes)
         return "\n".join(lines)
 
-    def _save_console(self) -> None:
+    def _capture_result(self) -> None:
+        screenshot_dir = Path(__file__).resolve().parent.parent / "screenshots"
+        try:
+            screenshot_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            QMessageBox.warning(
+                self,
+                "Không thể tạo thư mục",
+                f"Không thể tạo thư mục lưu ảnh:\n{screenshot_dir}\n\n{error}",
+            )
+            return
+
         path, _ = QFileDialog.getSaveFileName(
-            self, "Lưu console UART", "lora_console.txt", "Text files (*.txt);;All files (*)"
+            self,
+            "Lưu ảnh chụp kết quả",
+            str(screenshot_dir / "ket_qua.png"),
+            "PNG images (*.png)",
         )
-        if path:
-            with open(path, "w", encoding="utf-8") as output:
-                output.write(self.console.toPlainText())
+        if not path:
+            return
+
+        if Path(path).suffix.lower() != ".png":
+            path += ".png"
+
+        if not self.grab().save(path, "PNG"):
+            QMessageBox.warning(
+                self,
+                "Không thể lưu ảnh",
+                f"Không thể lưu ảnh chụp tại:\n{path}",
+            )
 
     def _clear_console(self) -> None:
         self.console.clear()

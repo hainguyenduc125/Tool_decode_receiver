@@ -58,9 +58,14 @@ class LoraDecoderWidget(QWidget):
             return
 
         decoded = decode_packet_details(raw)
-        status = "HỢP LỆ" if decoded.crc_ok else "KHÔNG HỢP LỆ / KHÔNG XÁC ĐỊNH"
+        status = (
+            "GATEWAY CHẤP NHẬN"
+            if decoded.gateway_result == "OK"
+            else f"GATEWAY TỪ CHỐI: {decoded.gateway_result}"
+        )
         lines = [
             f"Kết quả: {status}",
+            f"CRC: {'HỢP LỆ' if decoded.crc_ok else 'KHÔNG HỢP LỆ / KHÔNG XÁC ĐỊNH'}",
             f"Layout: {decoded.layout}",
             f"Loại bản tin: {decoded.kind}",
             f"Độ dài: {decoded.length} byte",

@@ -52,7 +52,7 @@ def now_file_ts() -> str:
 # = 16 hex). Dùng chung cho cả Rx (Serial) lẫn MQTT nhờ độ dài chuỗi id.
 # ---------------------------------------------------------------------------
 NODE_KIND_OLD = "OLD"   # 24 hex (12 byte) — frame 22/26/42, XOR CRC
-NODE_KIND_NEW = "NEW"   # 16 hex (8 byte)  — data 17+4N / info 28, CRC-16 Modbus
+NODE_KIND_NEW = "NEW"   # 16 hex (8 byte)  — data 18+4N / info 32, CRC-16 Modbus
 NODE_KIND_UNKNOWN = "UNKNOWN"
 
 

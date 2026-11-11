@@ -100,6 +100,10 @@ def _mac_to_uuid(mac: str) -> str:
 
 def _decode_kind(fd: FrameDecode) -> tuple[str, bool]:
     """Map FrameDecode → (RX kind, is_data_counted)."""
+    if fd.gateway_result == "CRC_ERROR":
+        return RX_KIND_CRC_ERROR, False
+    if fd.gateway_result != "OK":
+        return RX_KIND_UNPARSED, False
     if fd.family is None:
         return RX_KIND_UNPARSED, False
     if not fd.crc_ok:

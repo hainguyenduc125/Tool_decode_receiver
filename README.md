@@ -7,7 +7,7 @@ kết quả giải mã; không chạy gateway counter, MQTT hay so sánh các ng
 ## Chạy ứng dụng
 
 ```powershell
-cd "C:\Users\admin\OneDrive\Desktop\Tool giải mã Lora\gateway_message_counter"
+cd "C:\Users\admin\OneDrive\Desktop\Tool giải mã Lora\Tool_decode_receiver"
 python -m pip install -r requirements.txt
 python main.py
 ```
@@ -34,15 +34,31 @@ dòng:
 
 ## Các layout hỗ trợ
 
-- Type3 firmware hiện tại: UID 8 byte, SEQ, TYPE, MCU temperature/VDD,
-  channel và các mẫu float; CRC-16/Modbus little-endian.
-- Type3 legacy: layout không có TYPE và Info frame 28 byte.
-- Node cũ: frame 22/26/42 byte, gồm MCU info, camera hoặc 4 cảm biến; checksum
-  XOR-fold theo firmware.
+- Gateway Type0: UID 8 byte, data `18 + 4×N` byte hoặc Info 32 byte; CRC-16/Modbus
+  little-endian. Data heartbeat (`SEQ=0`) vẫn được phân loại theo layout Data.
+- Type3 TempCameraI2C đang dùng UID 12 byte: camera 26 byte và MCU Info 22 byte,
+  checksum XOR-fold. Tool chọn layout bằng cả Modbus, XOR và kiểm tra ngữ nghĩa
+  giống Gateway Type0, kể cả khi độ dài hai họ frame trùng nhau.
+- Layout Type3 legacy (không có `TYPE`, Info 28 byte) chỉ hiển thị tham khảo;
+  kết quả nêu rõ Gateway Type0 từ chối bằng `LENGTH_ERROR`.
+- Với frame có CRC hợp lệ nhưng sai số kênh/exponent, tool hiển thị lỗi
+  `INVALID_FORMAT`, tương ứng kết quả Gateway.
+- UID không theo format nhà máy được báo `INVALID_UUID`; Gateway có thể bỏ qua
+  kiểm tra này nếu UID đã được cấu hình trong whitelist (`packet.force`).
 
-Lưu ý: Info frame Type3 28 byte được hiển thị để tham khảo; firmware hiện tại
-không nhận diện độ dài này. Record `L:` có thể là envelope hoặc payload đã đệm,
-không nhất thiết là raw frame mà `parse_node_packet()` xử lý.
+Record `L:` có thể là envelope hoặc payload đã đệm, không nhất thiết là raw
+frame mà `parse_node_packet()` xử lý.
+
+## Đóng gói Windows `.exe`
+
+Cần Python Windows và kết nối Internet ở lần cài PyInstaller đầu tiên:
+
+```powershell
+.\build_exe.cmd
+```
+
+File chạy độc lập được tạo tại `dist\LoRaDecoder.exe`. Người dùng cuối không
+cần cài Python; bản đóng gói không bao gồm cấu hình người dùng hoặc log.
 
 ## Kiểm thử
 

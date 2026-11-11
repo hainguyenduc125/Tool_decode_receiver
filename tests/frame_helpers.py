@@ -64,7 +64,7 @@ def build_firmware_type3_info_frame(uid: bytes) -> bytes:
 
 
 def build_type3_info_frame(uid: bytes) -> bytes:
-    """28-byte Info frame Type3 (SEQ=0) — firmware hiện tại KHÔNG nhận diện."""
+    """28-byte legacy Info frame, not accepted by current Gateway Type0."""
     body = bytearray()
     body += uid
     body += struct.pack("<H", 0)          # SEQ = 0
@@ -81,6 +81,31 @@ def build_type3_info_frame(uid: bytes) -> bytes:
     crc = crc16_modbus(bytes(body))
     body += struct.pack("<H", crc)
     assert len(body) == 28
+    return bytes(body)
+
+
+def build_type3_camera_frame(
+    uid: bytes,
+    seq: int,
+    x: int,
+    y: int,
+    exponent: int,
+    value: int,
+    padding: bytes = b"\x01\x00",
+) -> bytes:
+    """Build the Type3 camera node's 26-byte, 12-byte-UID XOR frame."""
+    assert len(uid) == 12
+    assert len(padding) == 2
+    body = bytearray(uid)
+    body += struct.pack("<H", seq)
+    body += bytes([0, 16, x, y, exponent])
+    body += value.to_bytes(3, "little")
+    body += padding
+    assert len(body) == 24
+    calc = 0
+    for i in range((26 - 3) // 2):
+        calc ^= body[2 * i] | (body[2 * i + 1] << 8)
+    body += struct.pack("<H", calc)
     return bytes(body)
 
 
