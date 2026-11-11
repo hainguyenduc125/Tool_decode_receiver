@@ -22,7 +22,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-"%BUILD_PYTHON%" -X utf8 -m PyInstaller --clean --noconfirm --onefile --windowed --name LoRaDecoder --specpath build --workpath build\work --distpath dist main.py
+"%BUILD_PYTHON%" -X utf8 -m PyInstaller --clean --noconfirm --onefile --windowed --name LoRaDecoder --collect-submodules pyqtgraph --specpath build --workpath build\work --distpath dist main.py
 if errorlevel 1 (
     echo PyInstaller build failed.
     exit /b 1

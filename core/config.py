@@ -72,13 +72,14 @@ def load_config(path: Path | None = None) -> dict:
     return cfg
 
 
-def save_config(cfg: dict, path: Path | None = None) -> None:
+def save_config(cfg: dict, path: Path | None = None) -> bool:
     p = path or CONFIG_PATH
     try:
         with open(p, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=4, ensure_ascii=False)
+        return True
     except OSError:
-        pass
+        return False
 
 
 def ensure_logs_dir() -> Path:

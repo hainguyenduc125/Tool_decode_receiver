@@ -1,8 +1,8 @@
 # LoRa Console & Decoder
 
 Ứng dụng desktop Windows để xem dữ liệu UART từ mạch thu LoRa và giải mã bản
-tin theo parser trong `data_process.cpp`. Ứng dụng hiện chỉ có console LoRa và
-kết quả giải mã; không chạy gateway counter, MQTT hay so sánh các nguồn.
+tin theo parser trong `data_process.cpp`. Ứng dụng không chạy gateway counter,
+MQTT hay so sánh các nguồn.
 
 ## Chạy ứng dụng
 
@@ -13,17 +13,43 @@ python main.py
 ```
 
 Hoặc chạy `.\run.ps1`. Chọn cổng COM của mạch thu, baudrate (mặc định 115200)
-rồi bấm **Kết nối**. Console sẽ hiển thị dữ liệu UART; frame nhận dạng được sẽ
-tự xuất hiện ở **Kết quả giải mã**.
+rồi bấm **Kết nối**. Cửa sổ chính chia thành ba cột: **Bản tin nhận được**,
+**Giải mã thủ công** và **Kết quả trực tiếp**. Tab **Bản tin** liệt kê từng
+record UART; tab **Console UART thô** giữ nguyên luồng UART.
 
-Nhập UID vào ô **Lọc UID node** để chỉ hiện kết quả giải mã của node đó. Bộ lọc
-áp dụng cho cả bản tin UART trực tiếp và dữ liệu dán để giải mã; để trống ô này
-để xem tất cả UID. Console UART thô vẫn ghi lại toàn bộ dữ liệu nhận được.
+Chọn một hàng trong bảng (hoặc dùng phím ↑/↓) để nạp và giải mã ngay record đó.
+Trong tab console thô, nhấp vào một dòng nhận dạng được để giải mã dòng ấy.
+Kết quả giải mã do thao tác chọn hiển thị ở cột giữa; bản tin live mới nhất
+hiển thị riêng ở cột phải. Nếu đang chọn một hàng hoặc đã cuộn lên trong bảng,
+bản tin mới không làm thay đổi lựa chọn và vị trí cuộn.
+
+Ô **Lọc UID node** so khớp UID chính xác, không phân biệt hoa thường; với record
+`L:`, UID được lấy từ trường **Receiver UID**. Nhóm bộ lọc **SEQ** gồm **Chẵn**,
+**Lẻ** và **Không SEQ**, lọc đồng thời bảng, kết quả trực tiếp và thống kê.
+Các số cạnh checkbox là số record trong phạm vi UID hiện tại; luôn phải chọn ít
+nhất một luồng. Frame không có SEQ, Info, record `L:` và heartbeat (nếu được cấu
+hình) thuộc nhóm **Không SEQ**.
+Bảng giữ tối đa số dòng trong `config.json` → `ui.table_max_rows` (mặc định
+50.000); **Xóa console** xóa cả bảng, console, kết quả và dữ liệu thống kê.
+
+Khi nhập UID hợp lệ, panel **Thống kê node** hiển thị RSSI theo thời gian riêng
+cho luồng **Chẵn** và **Lẻ**, histogram RSSI (bin 5 dBm), số liệu từng luồng và
+ghép cặp Chẵn–Lẻ trong cửa sổ thời gian có thể chỉnh. Nếu thiếu `pyqtgraph`,
+phần số liệu vẫn hoạt động và panel báo rằng biểu đồ không khả dụng. Có thể đặt
+lại mốc bằng nút **Đặt lại mốc thống kê**; bản tin tiếp theo trở thành SEQ đầu
+tiên của từng luồng.
+
+Tỉ lệ nhận được tính riêng theo UID và parity từ SEQ: mỗi luồng tăng 2 mỗi bản
+tin, nên `Tổng (kỳ vọng) = (SEQ mới nhất − SEQ đầu tiên) / 2 + 1` trong từng
+đoạn; khi SEQ quay vòng hoặc node reset, các đoạn được cộng riêng. `Đã nhận` là
+số SEQ duy nhất đã nhận, `Mất = Tổng − Đã nhận`, và `Tỉ lệ = Đã nhận / Tổng ×
+100%`. Gói đến trễ có thể lấp vào SEQ bị mất; gói CRC sai chỉ được đếm riêng.
+Nhóm **Không SEQ** chỉ hiển thị số đã nhận, không tính tổng/mất/tỉ lệ.
 
 ## Giải mã thủ công
 
-Tab nhập ở dưới cửa sổ nhận một frame HEX, một dòng UART, hoặc nhiều record mỗi
-dòng:
+Ô nhập trong cột **Giải mã thủ công** nhận một frame HEX, một dòng UART, hoặc
+nhiều record, mỗi dòng một bản tin:
 
 - HEX thuần hoặc `+EVT:RXP2P:<rssi>:<snr>:<hex>`.
 - Dòng receiver `[RX] <length> | <rssi> | <snr> | <hex>`; RSSI/SNR dạng thập
@@ -69,5 +95,5 @@ cần cài Python; bản đóng gói không bao gồm cấu hình người dùng
 ## Kiểm thử
 
 ```powershell
-python -m unittest tests.test_lora_frame tests.test_lora_parser
+python -m unittest discover
 ```
