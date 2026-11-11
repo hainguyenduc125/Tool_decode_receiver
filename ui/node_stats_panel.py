@@ -81,6 +81,8 @@ class NodeStatsPanel(QWidget):
         layout.addLayout(controls)
 
         charts = QHBoxLayout()
+        charts_widget = QWidget()
+        charts_widget.setMaximumHeight(135)
         self.chart_error = QLabel()
         if pg is None:
             self.chart_error.setText("Thiếu pyqtgraph; biểu đồ không khả dụng.")
@@ -114,13 +116,16 @@ class NodeStatsPanel(QWidget):
             self.hist_plot.setLabel("bottom", "RSSI", units="dBm")
             histogram_layout.addWidget(self.hist_plot)
             charts.addWidget(histogram_panel, 1)
-        layout.addLayout(charts)
+        charts_widget.setLayout(charts)
+        layout.addWidget(charts_widget)
 
         self.table = QTableWidget(0, len(_TABLE_HEADERS))
         self.table.setHorizontalHeaderLabels(_TABLE_HEADERS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(21)
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setMaximumHeight(125)
         layout.addWidget(self.table)
         self.pair_summary = QLabel("Ghép cặp Chẵn–Lẻ: —")
         layout.addWidget(self.pair_summary)
@@ -131,6 +136,7 @@ class NodeStatsPanel(QWidget):
             self.hist_kind.currentIndexChanged.connect(self._refresh_histogram)
         self._stats: dict[SeqParity, ParityStats] = {}
         self._selected_parities: set[SeqParity] = set()
+        self.setMaximumHeight(330)
 
     def set_uid(self, uid: str) -> None:
         self.title.setText(f"Thống kê node — {uid}")
