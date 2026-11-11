@@ -262,7 +262,7 @@ class NodeStatsPanel(QWidget):
         self.hist_plot.clear()
         selected = self.hist_kind.currentData()
         parities = (
-            self._selected_parities & {"Chẵn", "Lẻ"}
+            self._selected_parities
             if selected == "selected"
             else ({selected} & self._selected_parities)
         )

@@ -18,6 +18,7 @@ from core.node_stats import (
     ReceivedFrame,
     SeqParity,
     record_matches_filters,
+    record_has_crc,
     uid_matches,
 )
 
@@ -159,11 +160,7 @@ class ReceivedMessageTable(QTableWidget):
             ]
             background = _ERROR_COLOR
         else:
-            has_crc = bool(
-                packet
-                and packet.crc_calculated is not None
-                and packet.crc_received is not None
-            )
+            has_crc = record_has_crc(frame.raw_line, decoded)
             values = [
                 time_text,
                 frame.parity,

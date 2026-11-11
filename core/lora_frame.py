@@ -520,6 +520,7 @@ def _decode_d_record(line: str) -> ConsoleDecode:
             raise ValueError(f"Trường {field} phải có đúng {digits} ký tự HEX.")
         return bytes.fromhex(value)
 
+    # D records encode the unsigned 16-bit SEQ as four HEX digits.
     seq_bytes = parse_hex(parts[1], 4, "SEQ")
     frame = bytearray.fromhex(node_id)
     frame.extend(seq_bytes[::-1])

@@ -30,7 +30,7 @@ def seq_parity(decoded: ConsoleDecode | None) -> SeqParity:
         return "Không SEQ"
     packet = decoded.packet
     seq = packet.seq
-    if seq is None or (
+    if seq is None or packet.kind == "info" or (
         HEARTBEAT_SEQ is not None
         and packet.kind == "data"
         and seq == HEARTBEAT_SEQ
@@ -54,7 +54,7 @@ def record_uid(decoded: ConsoleDecode) -> str:
 
 
 def record_uid_for_line(line: str, decoded: ConsoleDecode | None) -> str:
-    """Resolve a UID from the decode, or from the explicit L/D record header."""
+    """Resolve a UID from decoded data or an explicit record header."""
     if decoded is not None:
         uid = record_uid(decoded)
         if uid:
@@ -65,6 +65,17 @@ def record_uid_for_line(line: str, decoded: ConsoleDecode | None) -> str:
         if re.fullmatch(r"[0-9A-Fa-f]{24}", candidate):
             return candidate.upper()
     return ""
+
+
+def record_has_crc(line: str, decoded: ConsoleDecode | None) -> bool:
+    if _without_timestamp(line).startswith("D:"):
+        return True
+    packet = decoded.packet if decoded is not None else None
+    return bool(
+        packet
+        and packet.crc_calculated is not None
+        and packet.crc_received is not None
+    )
 
 
 def uid_matches(uid: str, query: str) -> bool:
@@ -238,7 +249,7 @@ class NodeStatsStore:
         self._trackers: dict[str, dict[SeqParity, SeqTracker]] = {}
         self._pair_times: dict[str, tuple[deque[float], deque[float]]] = {}
         self._pair_revision: dict[str, int] = {}
-        self._pair_cache: dict[tuple[str, float, int], PairStats] = {}
+        self._pair_cache: dict[str, tuple[float, int, PairStats]] = {}
         self._max_frames = max_frames
 
     def add(self, frame: ReceivedFrame) -> None:
@@ -255,7 +266,7 @@ class NodeStatsStore:
             return
 
         packet = decoded.packet
-        has_crc = packet.crc_calculated is not None and packet.crc_received is not None
+        has_crc = record_has_crc(frame.raw_line, decoded)
         if has_crc and not packet.crc_ok:
             tracker.crc_bad += 1
             return
@@ -278,10 +289,7 @@ class NodeStatsStore:
             (even_times if frame.parity == "Chẵn" else odd_times).append(frame.ts)
             revision = self._pair_revision.get(uid_key, 0) + 1
             self._pair_revision[uid_key] = revision
-            self._pair_cache = {
-                key: value for key, value in self._pair_cache.items()
-                if key[0] != uid_key
-            }
+            self._pair_cache.pop(uid_key, None)
 
     def frames_for(
         self, uid: str, parities: set[SeqParity] | frozenset[SeqParity]
@@ -296,10 +304,7 @@ class NodeStatsStore:
         self._trackers.pop(uid_key, None)
         self._pair_times.pop(uid_key, None)
         self._pair_revision.pop(uid_key, None)
-        self._pair_cache = {
-            key: value for key, value in self._pair_cache.items()
-            if key[0] != uid_key
-        }
+        self._pair_cache.pop(uid_key, None)
 
     def compute(
         self,
@@ -322,10 +327,9 @@ class NodeStatsStore:
             raise ValueError("window_s không được âm.")
         uid_key = uid.strip().casefold()
         revision = self._pair_revision.get(uid_key, 0)
-        cache_key = (uid_key, window_s, revision)
-        cached = self._pair_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        cached = self._pair_cache.get(uid_key)
+        if cached is not None and cached[:2] == (window_s, revision):
+            return cached[2]
         even_times, odd_times = self._pair_times.get(uid_key, (deque(), deque()))
         left_times = sorted(even_times)
         right_times = sorted(odd_times)
@@ -344,5 +348,5 @@ class NodeStatsStore:
             even_unpaired=len(left_times) - pairs,
             odd_unpaired=len(right_times) - pairs,
         )
-        self._pair_cache[cache_key] = result
+        self._pair_cache[uid_key] = (window_s, revision, result)
         return result

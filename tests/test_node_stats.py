@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import unittest
+from unittest.mock import patch
 
 from core.lora_frame import decode_console_line
 from core.node_stats import (
@@ -47,12 +48,39 @@ def frame_for_uid(ts: float, uid: str, seq: int) -> ReceivedFrame:
     return received
 
 
+def d_record_with_seq(seq: int) -> str:
+    parts = D_LINE[2:].split(",")
+    body = bytearray.fromhex(parts[0])
+    body.extend(bytes.fromhex(f"{seq:04X}")[::-1])
+    body.extend(bytes.fromhex(parts[2]))
+    body.extend(bytes.fromhex(parts[3]))
+    body.extend(bytes.fromhex(parts[4]))
+    body.extend(bytes.fromhex(parts[5]))
+    body.extend(bytes.fromhex(parts[6])[::-1])
+    body.extend(bytes.fromhex(parts[7]))
+    body.extend(bytes.fromhex(parts[8]))
+    checksum = 0
+    for offset in range((26 - 3) // 2):
+        checksum ^= body[2 * offset] | (body[2 * offset + 1] << 8)
+    parts[1] = f"{seq:04X}"
+    parts[-1] = f"{checksum:04X}"
+    return "D:" + ",".join(parts)
+
+
 class TestRecordHelpers(unittest.TestCase):
     def test_seq_parity_for_even_odd_and_missing_sequence(self):
         self.assertEqual(seq_parity(frame(0, seq=10).decoded), "Chẵn")
         self.assertEqual(seq_parity(frame(0, seq=11).decoded), "Lẻ")
         self.assertEqual(seq_parity(decode_console_line(L_LINE)), "Không SEQ")
         self.assertEqual(seq_parity(None), "Không SEQ")
+        info = deepcopy(decode_console_line(D_LINE))
+        info.packet.kind = "info"
+        info.packet.seq = 10
+        self.assertEqual(seq_parity(info), "Không SEQ")
+        heartbeat = deepcopy(decode_console_line(D_LINE))
+        heartbeat.packet.seq = 0
+        with patch("core.node_stats.HEARTBEAT_SEQ", 0):
+            self.assertEqual(seq_parity(heartbeat), "Không SEQ")
 
     def test_l_record_uid_comes_from_receiver_uid(self):
         decoded = decode_console_line(L_LINE)
@@ -61,7 +89,7 @@ class TestRecordHelpers(unittest.TestCase):
         self.assertEqual(record_uid_for_line("L:bad", None), "")
 
     def test_d_sequence_is_four_hex_digits_and_16_bit(self):
-        decoded = decode_console_line(D_LINE.replace(",3059,", ",FFFF,"))
+        decoded = decode_console_line(d_record_with_seq(65535))
         self.assertEqual(decoded.packet.seq, 65535)
 
     def test_uid_matches_exactly_and_ignores_case(self):
@@ -142,8 +170,7 @@ class TestNodeStatsStore(unittest.TestCase):
         stats = store.compute(UID, {"Không SEQ", "Lẻ"}, now=1)
         self.assertEqual(stats["Không SEQ"].received_unique, 1)
         self.assertIsNone(stats["Không SEQ"].expected)
-        self.assertEqual(stats["Lẻ"].received_unique, 0)
-        self.assertEqual(stats["Lẻ"].crc_bad, 1)
+        self.assertEqual(stats["Không SEQ"].crc_bad, 1)
 
     def test_even_odd_pairing_with_unpaired_messages(self):
         store = NodeStatsStore()
