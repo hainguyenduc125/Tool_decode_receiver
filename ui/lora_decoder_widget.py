@@ -21,7 +21,8 @@ class LoraDecoderWidget(QWidget):
 
         hint = QLabel(
             "Dán frame HEX, dòng +EVT:RXP2P, hoặc dòng log gateway có DATA:. "
-            "Hỗ trợ node Type3 (firmware hiện tại và legacy) và node cũ."
+            "Hỗ trợ UID 8-byte protocol, Type3 TempCamera, Type6 Energy "
+            "và các layout node cũ."
         )
         hint.setWordWrap(True)
         layout.addWidget(hint)

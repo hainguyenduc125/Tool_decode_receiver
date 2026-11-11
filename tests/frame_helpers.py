@@ -109,6 +109,29 @@ def build_type3_camera_frame(
     return bytes(body)
 
 
+def build_type6_energy_frame(uid: bytes, seq: int, sensor_type: int) -> bytes:
+    """Build a Type6 42-byte energy frame with the firmware's channel markers."""
+    assert sensor_type in (8, 9)
+    frame = bytearray(build_old_frame(42, uid, seq))
+    unit_index = 42 if sensor_type == 8 else 37
+    for i in range(4):
+        offset = 16 + 6 * i
+        frame[offset:offset + 6] = bytes([
+            2,
+            (2300 + i * 100) & 0xFF,
+            ((2300 + i * 100) >> 8) & 0xFF,
+            ((2300 + i * 100) >> 16) & 0xFF,
+            unit_index,
+            sensor_type,
+        ])
+
+    calc = 0
+    for i in range((42 - 3) // 2):
+        calc ^= frame[2 * i] | (frame[2 * i + 1] << 8)
+    frame[-2:] = struct.pack("<H", calc)
+    return bytes(frame)
+
+
 def build_old_frame(nbytes: int, uuid12: bytes, seq: int) -> bytes:
     """Frame node cũ 22/26/42 với CRC XOR đúng quy ước LoRa_CRC_check của gateway.
 

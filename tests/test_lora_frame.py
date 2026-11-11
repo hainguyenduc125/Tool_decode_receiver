@@ -20,6 +20,7 @@ from .frame_helpers import (
     build_type3_camera_frame,
     build_type3_data_frame,
     build_type3_info_frame,
+    build_type6_energy_frame,
 )
 
 UID = bytes.fromhex("4B3A5E0615E18000")
@@ -89,7 +90,30 @@ class TestDecodeNew(unittest.TestCase):
         self.assertEqual(decoded.kind, "data")
         self.assertTrue(decoded.crc_ok)
         self.assertEqual(details.gateway_result, "OK")
+        self.assertIn("Type3 TempCamera", details.layout)
+        self.assertIn(("Node type", "3"), details.fields)
         self.assertIn(("Sensor value", "123.45"), details.fields)
+
+    def test_type6_energy_frame_uses_gateway_markers_and_decodes_channels(self):
+        frame = build_type6_energy_frame(OLD_UUID, seq=7, sensor_type=8)
+        decoded = decode_frame(frame)
+        details = decode_packet_details(frame)
+
+        self.assertEqual(decoded.gateway_result, "OK")
+        self.assertEqual(decoded.family, "old")
+        self.assertEqual(decoded.kind, "data")
+        self.assertEqual(decoded.seq, 7)
+        self.assertIn("Type6 Energy", details.layout)
+        self.assertIn(("Node type", "6"), details.fields)
+        self.assertIn(("Sensor 0 type index", "8"), details.fields)
+        self.assertIn(("Phase A voltage", "23.00 V"), details.fields)
+        self.assertIn(("Phase B voltage", "24.00 V"), details.fields)
+
+    def test_type6_current_frame_is_labeled_in_amperes(self):
+        details = decode_packet_details(
+            build_type6_energy_frame(OLD_UUID, seq=8, sensor_type=9)
+        )
+        self.assertIn(("Phase A current", "23.00 A"), details.fields)
 
     def test_type3_camera_with_bad_exponent_is_gateway_invalid_format(self):
         frame = build_type3_camera_frame(OLD_UUID, 1, 3, 4, 8, 12345)
@@ -143,7 +167,10 @@ class TestDecodeNew(unittest.TestCase):
         self.assertTrue(d.crc_ok)
 
         details = decode_packet_details(frame)
-        self.assertEqual(details.layout, "Type3 firmware hiện tại (có TYPE, CRC-16/Modbus LE)")
+        self.assertEqual(
+            details.layout,
+            "UID 8-byte protocol (TYPE 3, CRC-16/Modbus LE)",
+        )
         self.assertTrue(details.crc_ok)
         self.assertIn(("TYPE", "3"), details.fields)
         self.assertIn(("MCU temperature", "31.22 °C"), details.fields)
@@ -241,6 +268,34 @@ class TestDecodeOld(unittest.TestCase):
         self.assertTrue(result.packet.crc_ok)
         self.assertEqual(result.rssi, -45)
         self.assertEqual(result.snr, 8)
+
+    def test_rx_console_line_decodes_frame_and_radio_metadata(self):
+        frame = bytes.fromhex("ECB3B30615E180000100046D351A01006183")
+        result = decode_console_line(
+            "[RX] 18 | -118.00 | -2.75 | ECB3B30615E180000100046D351A01006183"
+        )
+        self.assertEqual(result.packet.gateway_result, "OK")
+        self.assertEqual(result.packet.node_uuid, "ECB3B30615E18000")
+        self.assertEqual(result.packet.seq, 1)
+        self.assertEqual(result.packet.length, len(frame))
+        self.assertIn("UID 8-byte protocol (TYPE 4", result.packet.layout)
+        self.assertIn(("TYPE", "4"), result.packet.fields)
+        self.assertEqual(result.rssi, -118.0)
+        self.assertEqual(result.snr, -2.75)
+
+    def test_timestamped_rx_console_line_is_accepted(self):
+        result = decode_console_line(
+            "[11:13:06] [RX] 18 | -118.00 | -2.75 | "
+            "ECB3B30615E180000100046D351A01006183"
+        )
+        self.assertEqual(result.packet.node_uuid, "ECB3B30615E18000")
+
+    def test_rx_console_line_reports_declared_length_mismatch(self):
+        with self.assertRaisesRegex(ValueError, "khai báo 19 byte"):
+            decode_console_line(
+                "[RX] 19 | -118.00 | -2.75 | "
+                "ECB3B30615E180000100046D351A01006183"
+            )
 
     def test_old_42_seq_little_endian_matches_firmware(self):
         # Firmware đọc SEQ: packet.data[13]<<8 | packet.data[12] (little-endian,

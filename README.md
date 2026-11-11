@@ -26,6 +26,8 @@ Tab nhập ở dưới cửa sổ nhận một frame HEX, một dòng UART, ho�
 dòng:
 
 - HEX thuần hoặc `+EVT:RXP2P:<rssi>:<snr>:<hex>`.
+- Dòng receiver `[RX] <length> | <rssi> | <snr> | <hex>`; RSSI/SNR dạng thập
+  phân được giữ lại khi hiển thị.
 - `D:` record có 19 trường: tool dựng lại frame 42 byte, kiểm tra CRC XOR và
   giải mã 4 cảm biến theo công thức của firmware.
 - `L:` record: hiển thị receiver, type và payload; nếu payload không đúng layout
@@ -35,10 +37,14 @@ dòng:
 ## Các layout hỗ trợ
 
 - Gateway Type0: UID 8 byte, data `18 + 4×N` byte hoặc Info 32 byte; CRC-16/Modbus
-  little-endian. Data heartbeat (`SEQ=0`) vẫn được phân loại theo layout Data.
+  little-endian. TYPE được hiển thị đúng theo byte trong frame; Data heartbeat
+  (`SEQ=0`) vẫn được phân loại theo layout Data.
 - Type3 TempCameraI2C đang dùng UID 12 byte: camera 26 byte và MCU Info 22 byte,
   checksum XOR-fold. Tool chọn layout bằng cả Modbus, XOR và kiểm tra ngữ nghĩa
   giống Gateway Type0, kể cả khi độ dài hai họ frame trùng nhau.
+- Type3 TempCamera 26 byte được nhận diện là `Type3`; Type6 Energy 42 byte được
+  nhận diện qua marker sensor 8 (điện áp) / 9 (dòng điện) như Gateway Type0.
+  Giá trị Type6 được hiển thị thêm theo pha, kèm đơn vị V/A.
 - Layout Type3 legacy (không có `TYPE`, Info 28 byte) chỉ hiển thị tham khảo;
   kết quả nêu rõ Gateway Type0 từ chối bằng `LENGTH_ERROR`.
 - Với frame có CRC hợp lệ nhưng sai số kênh/exponent, tool hiển thị lỗi

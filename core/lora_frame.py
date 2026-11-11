@@ -53,8 +53,8 @@ class PacketDetails:
 @dataclass
 class ConsoleDecode:
     packet: PacketDetails
-    rssi: Optional[int] = None
-    snr: Optional[int] = None
+    rssi: Optional[float] = None
+    snr: Optional[float] = None
 
 
 def crc16_modbus(data: bytes) -> int:
@@ -289,7 +289,7 @@ def _decode_current_type3(raw: bytes) -> PacketDetails:
 
     return PacketDetails(
         family="new",
-        layout="Type3 firmware hiện tại (có TYPE, CRC-16/Modbus LE)",
+        layout=f"UID 8-byte protocol (TYPE {raw[10]}, CRC-16/Modbus LE)",
         kind=kind,
         node_uuid=raw[:8].hex().upper(),
         seq=seq,
@@ -361,6 +361,7 @@ def _decode_old_packet(raw: bytes) -> PacketDetails:
     n = len(raw)
     crc_calc, crc_recv, crc_ok = _crc_fields(raw, modbus=False)
     uuid = raw[:12].hex().upper()
+    node_type: Optional[int] = None
     if n == 22:
         temp_raw = int.from_bytes(raw[16:18], "little")
         vdd_raw = int.from_bytes(raw[18:20], "little")
@@ -380,6 +381,8 @@ def _decode_old_packet(raw: bytes) -> PacketDetails:
         kind = "data"
         notes = []
         if n == 26:
+            node_type = 3
+            fields.insert(0, ("Node type", "3"))
             exponent = raw[18]
             fields.extend([
                 ("Camera X", str(raw[16])),
@@ -392,23 +395,49 @@ def _decode_old_packet(raw: bytes) -> PacketDetails:
             else:
                 notes.append("Exponent camera vượt giới hạn firmware (0..7).")
         else:
+            sensor_types: list[int] = []
             for i in range(4):
                 offset = 16 + 6 * i
                 exponent = raw[offset]
+                unit_index = raw[offset + 4]
+                sensor_type = raw[offset + 5] & 0x0F
+                sensor_types.append(sensor_type)
                 fields.extend([
                     (f"Sensor {i} exponent", str(exponent)),
-                    (f"Sensor {i} unit index", str(raw[offset + 4])),
-                    (f"Sensor {i} type index", str(raw[offset + 5] & 0x0F)),
+                    (f"Sensor {i} unit index", str(unit_index)),
+                    (f"Sensor {i} type index", str(sensor_type)),
                 ])
                 if exponent <= 7:
-                    value = int.from_bytes(raw[offset + 1:offset + 4], "little") / (10 ** exponent)
+                    value = int.from_bytes(
+                        raw[offset + 1:offset + 4], "little"
+                    ) / (10 ** exponent)
                     fields.append((f"Sensor {i} value", _number(value)))
+                    if sensor_type in (8, 9):
+                        measurement = "voltage" if sensor_type == 8 else "current"
+                        unit = "V" if sensor_type == 8 else "A"
+                        channel = (
+                            f"Phase {chr(ord('A') + i)}" if i < 3 else f"Sensor {i}"
+                        )
+                        fields.append((
+                            f"{channel} {measurement}",
+                            f"{_number(value)} {unit}",
+                        ))
                 else:
-                    notes.append(f"Exponent sensor {i} vượt giới hạn firmware (0..7).")
+                    notes.append(
+                        f"Exponent sensor {i} vượt giới hạn firmware (0..7)."
+                    )
+            if any(sensor_type in (8, 9) for sensor_type in sensor_types):
+                node_type = 6
+                fields.insert(0, ("Node type", "6"))
 
     return PacketDetails(
         family="old",
-        layout=f"Node cũ ({n} byte, CRC XOR)",
+        layout=(
+            f"Type{node_type} {'TempCamera' if node_type == 3 else 'Energy'} "
+            f"({n} byte, CRC XOR)"
+            if node_type in (3, 6)
+            else f"Node cũ ({n} byte, CRC XOR)"
+        ),
         kind=kind,
         node_uuid=uuid,
         seq=seq,
@@ -534,10 +563,29 @@ def _decode_d_record(line: str) -> ConsoleDecode:
 
 
 def decode_console_line(line: str) -> ConsoleDecode:
-    """Giải mã HEX, event UART, record D hoặc nhận diện envelope L."""
+    """Giải mã HEX, record RX/event UART, record D hoặc nhận diện envelope L."""
     text = line.strip()
     if not text:
         raise ValueError("Chưa có dữ liệu để giải mã.")
+
+    rx_log = re.fullmatch(
+        r"(?:\[\d{2}:\d{2}:\d{2}\]\s*)?\[RX\]\s*(\d+)\s*\|\s*"
+        r"(-?\d+(?:\.\d+)?)\s*\|\s*(-?\d+(?:\.\d+)?)\s*\|\s*"
+        r"([0-9A-Fa-f,\s]+)",
+        text,
+    )
+    if rx_log:
+        expected_length = int(rx_log.group(1))
+        raw = parse_hex_frame(rx_log.group(4))
+        if len(raw) != expected_length:
+            raise ValueError(
+                f"RX khai báo {expected_length} byte nhưng payload có {len(raw)} byte."
+            )
+        return ConsoleDecode(
+            packet=decode_packet_details(raw),
+            rssi=float(rx_log.group(2)),
+            snr=float(rx_log.group(3)),
+        )
 
     if text.startswith("D:"):
         return _decode_d_record(text)

@@ -32,6 +32,7 @@ class LoraConsoleWindow(QMainWindow):
         self.setWindowTitle("LoRa Console & Decoder")
         self.resize(1180, 760)
         self.worker: SerialWorker | None = None
+        self._last_live_decoded: ConsoleDecode | None = None
         self._build_ui()
         self._detect_ports()
 
@@ -82,6 +83,7 @@ class LoraConsoleWindow(QMainWindow):
         self.uid_filter.setToolTip(
             "Chỉ hiển thị kết quả giải mã có UID trùng khớp; không phân biệt chữ hoa/thường."
         )
+        self.uid_filter.textChanged.connect(self._refresh_live_result)
         uid_filter_row.addWidget(self.uid_filter, 1)
         layout.addLayout(uid_filter_row)
 
@@ -182,7 +184,7 @@ class LoraConsoleWindow(QMainWindow):
         timestamp = time.strftime("%H:%M:%S")
         self.console.appendPlainText(f"[{timestamp}] {line}")
 
-        if line.startswith(("+EVT:RXP2P:", "D:", "L:")) or "DATA:" in line:
+        if line.startswith(("[RX]", "+EVT:RXP2P:", "D:", "L:")) or "DATA:" in line:
             self._show_decoded(line)
 
     def _uid_filter_value(self) -> str:
@@ -221,16 +223,26 @@ class LoraConsoleWindow(QMainWindow):
 
     def _show_decoded(self, line: str) -> None:
         try:
-            uid_filter = self._uid_filter_value()
-        except ValueError as exc:
-            self.result.setPlainText(f"Bộ lọc UID không hợp lệ: {exc}")
-            return
-        try:
             decoded = decode_console_line(line)
         except ValueError as exc:
             self.result.setPlainText(f"Không giải mã được bản tin UART:\n{exc}")
             return
+        self._last_live_decoded = decoded
+        self._refresh_live_result()
+
+    def _refresh_live_result(self) -> None:
+        if self._last_live_decoded is None:
+            return
+        try:
+            uid_filter = self._uid_filter_value()
+        except ValueError as exc:
+            self.result.setPlainText(f"Bộ lọc UID không hợp lệ: {exc}")
+            return
+        decoded = self._last_live_decoded
         if uid_filter and decoded.packet.node_uuid.upper() != uid_filter:
+            self.result.setPlainText(
+                f"Không có bản tin trực tiếp nào khớp UID node {uid_filter}."
+            )
             return
         self.result.setPlainText(self._format_result(decoded, "Bản tin trực tiếp"))
 
@@ -306,6 +318,7 @@ class LoraConsoleWindow(QMainWindow):
     def _clear_console(self) -> None:
         self.console.clear()
         self.result.clear()
+        self._last_live_decoded = None
 
     def closeEvent(self, event) -> None:
         if self.worker:
